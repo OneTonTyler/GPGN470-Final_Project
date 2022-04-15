@@ -7,8 +7,8 @@ class Build_ShapeFile:
 
     Methods:
         __init__(self, name)
-        __repr__(self)
         shapefile_constructor(self)
+        geo_dataframe(self)
     """
 
     def __init__(self, name):
