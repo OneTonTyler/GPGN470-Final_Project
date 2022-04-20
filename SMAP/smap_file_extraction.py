@@ -41,5 +41,5 @@ gdf_clipped = geopandas.clip(gdf, mask)
 gdf_clipped.reset_index(drop=True, inplace=True)
 
 # Plot the geodataframe
-gdf_clipped.plot('Soil_Moisture', cmap='viridis', markersize=0.1)
+gdf_clipped.plot('Soil_Moisture', cmap='viridis')
 plt.show()
