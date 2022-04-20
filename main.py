@@ -2,50 +2,31 @@
 # Final Project for GPGN470
 
 # Necessary Libraries
+import os
+import sys
+
 import numpy as np
 
-# Data File Extraction
-import netCDF4 as nc
+# File IO
+import os
 
-# Image Manipulation
-import matplotlib.pyplot as plt
-import pyqtgraph as pg
 
-filename = r"Land_Cover\Global_300m.nc"
-dataset = nc.Dataset(filename)
+# Data Extraction
+class DataFileExtraction:
+    def __init__(self, source_path):
+        self.project_root = os.path.dirname(os.path.dirname(__file__))
+        self.source_root = self.path_constructor(source_path)
 
-#print(dataset)
-for i in dataset.__dict__:
-    print(i)
+    def path_constructor(self, source_path):
+        if os.path.isabs(source_path):
+            return source_path
 
-print("------------")
-
-for i in dataset.dimensions.values():
-    print(i)
-
-# print("------------")
-# for i in dataset.variables.values():
-#     print(i)
-
-print("------------")
-print(dataset['lccs_class'].shape)
-
-# plt.figure()
-# plt.imshow(dataset['lccs_class'][0])
-# plt.show()
-
-import time
-
-# pyqtgraph time test
-start_time = time.time()
-pg.image(dataset['lccs_class'][0].T)
-
-print("%s" %(time.time() - start_time))
-
-# matplotlib time test
-start_time = time.time()
-plt.figure()
-plt.imshow(dataset['lccs_class'][0])
-plt.show()
-
-print("%s" %(time.time() - start_time))
+        try:
+            # Check path relative to root directory
+            # Return absolute path or FileNotFoundError
+            source_root = os.path.join(self.project_root, source_path)
+            if os.path.isfile(source_path):
+                return source_root
+            raise FileNotFoundError("Cannot locate file from: \n{}".format(source_root))
+        except FileNotFoundError as err:
+            sys.exit(err)
