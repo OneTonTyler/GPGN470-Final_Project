@@ -2,18 +2,25 @@
 # Final Project for GPGN470
 
 # Necessary Libraries
-import glob
-import os
 import sys
+import matplotlib.pyplot as plt
 
+# GeoProcessing
+import json
+import h5py
+import geopandas
 import numpy as np
+import pandas as pd
+import xarray as xr
+import rioxarray as rxr
+
+from shapely.geometry import mapping, Point
+from rioxarray.merge import merge_datasets
 
 # File IO
 import os
 import shutil
-
 import glob
-import xarray as xr
 
 # Custom Files
 from definitions import ROOT_DIR
@@ -28,6 +35,7 @@ class DataFileExtraction:
         __init__(self)
         dir_constructor(self)
         data_constructor(self)
+        save_data(self)
     """
     def __init__(self):
         self.project_root = ROOT_DIR
@@ -53,7 +61,7 @@ class DataFileExtraction:
 
         # If a directory exists, ask user if they wish to continue
         # This will remove the upper level data folder
-        except FileExistsError as err:
+        except FileExistsError:
             print('Directory already exists, \nContinuing will remove the current contents')
             user_input = input('Continue: Y/N \n>>> ')
             if user_input == 'Y' or user_input == 'y':
@@ -62,7 +70,7 @@ class DataFileExtraction:
                 self.dir_constructor()
 
         # Something must be wrong with the root directory
-        except FileNotFoundError as err:
+        except FileNotFoundError:
             print(f'Cannot create path: {self.data_dir}')
             sys.exit(1)
 
@@ -82,30 +90,79 @@ class DataFileExtraction:
             print('\nDownloading files')
             ServerRequest(file_dir, urls, basename)
 
+    def save_data(self, file_type):
+        """Save the files to disk"""
 
-DataFileExtraction()
+# Create directory tree and download necessary files
+# DataFileExtraction()
 
-# Data Extraction
-# class DataFileExtraction:
-#     def __init__(self, source_path):
-#         self.project_root = os.path.dirname(os.path.dirname(__file__))
-#         self.source_root = self.path_constructor(source_path)
-#
-#     def path_constructor(self, source_path):
-#         if os.path.isabs(source_path):
-#             return source_path
-#
-#         try:
-#             # Check path relative to root directory
-#             # Return absolute path or FileNotFoundError
-#             source_root = os.path.join(self.project_root, source_path)
-#             if os.path.isdir(source_path):
-#                 return source_root
-#             raise FileNotFoundError("Cannot locate directory: \n{}".format(source_root))
-#         except FileNotFoundError as err:
-#             sys.exit(err)
+# ------------------------------------------------
+# Processing data
+# Reading the geometry shapefile for masking
+shape_file = r'Data_Files\Shape_Files\world-administrative-boundaries.shp'
 
-    # def data_constructor(self):
-    #     match os.path.splitext(self.source_root)[1]:
-    #         case '.nc':
-    #             dataset = [xr.open_dataset(dataset) for dataset in glob.glob()]
+world_boundaries = geopandas.read_file(shape_file)
+mexico_mask = world_boundaries['geometry'].loc[world_boundaries['name'] == 'Mexico']
+
+
+# ------------------------------------------------
+# TODO Save files to disk
+# TODO The following processes could be transformed into a class
+# Reading and processing SMAP files
+# Extracting the dataset into memory
+smap_files = r'Data_Files\SMAP\*.h5'
+smap = [h5py.File(dataset) for dataset in glob.glob(smap_files)]
+
+# TODO Extract the PM data as well
+# Converting dataset into a pandas dataframe object
+smap = [pd.DataFrame({
+    'Landcover_Class_0': dataset['Soil_Moisture_Retrieval_Data_AM']['landcover_class'][:, :, 0].ravel(),
+    'Landcover_Class_1': dataset['Soil_Moisture_Retrieval_Data_AM']['landcover_class'][:, :, 1].ravel(),
+    'Landcover_Class_2': dataset['Soil_Moisture_Retrieval_Data_AM']['landcover_class'][:, :, 2].ravel(),
+    'Soil_Moisture': dataset['Soil_Moisture_Retrieval_Data_AM']['soil_moisture'][:].ravel(),
+    'Latitude': dataset['Soil_Moisture_Retrieval_Data_AM']['latitude'][:].ravel(),
+    'Longitude': dataset['Soil_Moisture_Retrieval_Data_AM']['longitude'][:].ravel()
+}) for dataset in smap]
+smap = pd.concat(smap, ignore_index=True)
+
+# Setting the latitude and longitude into point coordinates
+smap['Coordinates'] = list(zip(smap.Longitude, smap.Latitude))
+smap['Coordinates'] = smap['Coordinates'].apply(Point)
+
+# Convert from Pandas Dataframe Object into a GeoPandas Dataframe Object
+# Unknown values are masked as -9999
+smap = geopandas.GeoDataFrame(smap.query('Soil_Moisture >= 0'), geometry='Coordinates')
+smap = smap.set_crs('epsg:4326')
+smap = smap.drop_duplicates(subset='Coordinates')
+
+# Clip Geopandas Dataframe with our mexico_mask
+smap = geopandas.clip(smap, mexico_mask)
+smap = smap.reset_index(drop=True)
+
+# ------------------------------------------------
+# Reading and processing CYGNSS files
+# Extracting the dataset into memory using xarray for reading netcdf4
+cygnss_files = r'Data_Files\CYGNSS\*.nc'
+cygnss = [xr.open_dataset(dataset) for dataset in glob.glob(cygnss_files)]
+
+# Convert into a Pandas DataFrame Object
+# Longitude values go from 0 to 360, so 180 can be subtracted
+cygnss = [pd.DataFrame({
+    'SNR': dataset['ddm_snr'].values.ravel(),
+    'Latitude': dataset['sp_lat'].values.ravel(),
+    'Longitude': dataset['sp_lon'].values.ravel() - 180
+}) for dataset in cygnss]
+cygnss = pd.concat(cygnss, ignore_index=True)
+
+# Setting the latitude and longitude into point coordinates
+cygnss['Coordinates'] = list(zip(cygnss.Longitude, cygnss.Latitude))
+cygnss['Coordinates'] = cygnss['Coordinates'].apply(Point)
+
+# Convert from Pandas Dataframe Object into a GeoPandas Dataframe Object
+cygnss = geopandas.GeoDataFrame(cygnss, geometry='Coordinates')
+cygnss = cygnss.set_crs('epsg:4326')
+
+# Clip Geopandas Dataframe with our mexico_mask
+cygnss = geopandas.clip(cygnss, mexico_mask)
+
+# ------------------------------------------------
