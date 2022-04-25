@@ -55,8 +55,29 @@ class ServerRequest:
             self.ftp_request()
         elif self.basename == 'CYGNSS' or self.basename == 'SMAP':
             self.earth_data_request()
+        elif self.basename == 'Shape_Files':
+            self.shape_file_request()
         else:
-            print('')
+            print('Request does not exist... Yet!')
+
+    def shape_file_request(self):
+        """Default request"""
+        zip_file = self.basename + '.zip'
+
+        for url in self.urls:
+            response = requests.get(url)
+
+            # TODO Look into using tempfile package
+            # Create a temporary zip file within the project root
+            # Decompress into its respective directory
+            with open(zip_file, 'wb') as file:
+                file.write(response.content)
+
+            shutil.unpack_archive(zip_file, self.basename)
+            shutil.move(self.basename, self.dir_path)
+
+            # Delete the temporary file
+            os.remove(zip_file)
 
     # TODO Make this more general to accommodate other requests
     def ftp_request(self):

@@ -39,12 +39,13 @@ class DataFileExtraction:
 
     # TODO Add a function to check if the files already exist without removing and
     #   only download new files
+    # NOTE may be best to remove this method to have the data_constructor create the file directories
     def dir_constructor(self):
         """Create a file directory for the data to be downloaded and stored"""
         try:
             # Create a new directory if no directory exists
             os.mkdir(self.data_dir)
-            for file in ['CYGNSS', 'Shape_Files', 'EASE-2_Grid', 'SMAP']:
+            for file in ['CYGNSS', 'EASE-2_Grid', 'SMAP']:
                 os.mkdir(os.path.join(self.data_dir, file))
 
             # Load data into files
