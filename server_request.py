@@ -1,8 +1,8 @@
 import os
 import requests
-import urllib.request
 import shutil
 import urllib.request as request
+
 from contextlib import closing
 from tqdm import *
 from definitions import AUTH, FTP_FILES
@@ -102,7 +102,7 @@ class ServerRequest:
 
     def earth_data_request(self):
         """Send requests to EarthData servers and download files"""
-        session = SessionWithHeaderRedirection
+        session = SessionWithHeaderRedirection(*self.auth)
         for url in self.urls:
             # Extract the filename from the url to be used when saving the file
             filename = url[url.rfind('/') + 1:]
@@ -111,7 +111,7 @@ class ServerRequest:
             try:
                 # Submit the request using the session
                 # And raise exception HTTPError if one occurred
-                response = session.get(url=url, stream=True)
+                response = session.get(url, stream=True)
                 response.raise_for_status()
 
                 # Initializes progress bar
