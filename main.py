@@ -2,20 +2,15 @@
 # Final Project for GPGN470
 
 # Necessary Libraries
-import sys
-import matplotlib.pyplot as plt
 
 # GeoProcessing
-import json
 import h5py
 import geopandas
 import numpy as np
 import pandas as pd
 import xarray as xr
-import rioxarray as rxr
 
-from shapely.geometry import mapping, Point
-from rioxarray.merge import merge_datasets
+from shapely.geometry import Point
 
 # File IO
 import os
@@ -23,7 +18,6 @@ import shutil
 import glob
 
 # Custom Files
-from definitions import ROOT_DIR
 from server_request import DatasetDownloadRequest, ChangeDirectory
 
 
@@ -59,10 +53,17 @@ def save_data(path, file_type, mask):
         }) for dataset in datasets]
         df = pd.concat(df, ignore_index=True)
 
+    elif file_type == 'EASE2':
+        datasets = [np.fromfile(dataset, dtype=np.float64) for dataset in glob.glob(path)]
+        df = pd.DataFrame({
+            'Latitude': datasets[0],
+            'Longitude': datasets[1]
+        })
     # Setting the latitude and longitude into point coordinates
     # Must have a latitude and longitude pair
     df['Coordinates'] = list(zip(df.Longitude, df.Latitude))
     df['Coordinates'] = df['Coordinates'].apply(Point)
+
 
     # Convert from Pandas Dataframe Object into a GeoPandas Dataframe Object
     # Unknown values are masked as -9999
@@ -86,7 +87,7 @@ def save_data(path, file_type, mask):
     gdf.to_file(os.path.join(base_dir, file_type + '.shp'))
 
 
-## ------------------------------------------------
+# ------------------------------------------------
 # Create directory tree and download necessary files
 request = DatasetDownloadRequest()
 
@@ -100,11 +101,12 @@ urls = [[url.strip('\n') for url in list(open(os.path.join('URLs', file)))] for 
 with ChangeDirectory('Data_Files'):
     request.server_request(urls[0], 'CYGNSS', host='urs.earthdata.nasa.gov', stream=True)
     request.server_request(urls[1], 'EASE-2_Grid')
-    request.server_request(urls[2], 'Shape_Files')
+    request.server_request(urls[2], r'Shape_Files\Mexico')
     request.server_request(urls[3], 'SMAP', host='urs.earthdata.nasa.gov', stream=True)
 
 # Unpacking zip file
-with ChangeDirectory(r'Data_Files\Shape_Files'):
+print('Unpacking Files...')
+with ChangeDirectory(r'Data_Files\Shape_Files\Mexico'):
     shutil.unpack_archive('world-administrative-boundaries.zip')
     os.remove('world-administrative-boundaries.zip')
 
@@ -113,10 +115,12 @@ with ChangeDirectory(r'Data_Files\EASE-2_Grid'):
     os.system(f'tar -xvf gridloc.EASE2_M36km.tgz')
     os.system(f'del gridloc.EASE2_M36km.tgz')
 
-## ------------------------------------------------
+
+# ------------------------------------------------
 # Processing data
 # Reading the geometry shapefile for masking
-shape_file = r'Data_Files\Shape_Files\world-administrative-boundaries.shp'
+print('Processing shape files...')
+shape_file = r'Data_Files\Shape_Files\Mexico\world-administrative-boundaries.shp'
 
 world_boundaries = geopandas.read_file(shape_file)
 mexico_mask = world_boundaries['geometry'].loc[world_boundaries['name'] == 'Mexico']
@@ -124,5 +128,27 @@ mexico_mask = world_boundaries['geometry'].loc[world_boundaries['name'] == 'Mexi
 # Processing Files
 save_data(r'Data_Files\SMAP\*.h5', 'SMAP', mexico_mask)
 save_data(r'Data_Files\CYGNSS\*.nc', 'CYGNSS', mexico_mask)
+save_data(r'Data_Files\EASE-2_Grid\*', 'EASE2', mexico_mask)
 
-## ------------------------------------------------
+# ------------------------------------------------
+# Join our shape files into a single geopanda dataframe object
+print('Merging shape files...')
+with ChangeDirectory(r'Data_Files\Shape_Files'):
+    cygnss_gdf = geopandas.read_file(r'CYGNSS\CYGNSS.shp')
+    smap_gdf = geopandas.read_file(r'SMAP\SMAP.shp')
+    ease2_gdf = geopandas.read_file(r'EASE2\EASE2.shp')
+
+    gdf = geopandas.sjoin_nearest(ease2_gdf, cygnss_gdf)
+    gdf = geopandas.sjoin_nearest(ease2_gdf, smap_gdf)
+    gdf = gdf.drop(columns=['Latitude_left', 'Longitude_left', 'Latitude_right', 'Longitude_right', 'index_right'])
+    gdf = gdf.reset_index()
+
+    if not os.path.isdir('Master'):
+        os.mkdir('Master')
+
+    gdf.to_file(r'Master\Master.shp')
+
+# ------------------------------------------------
+# Machine learning
+
+print('Done!')
