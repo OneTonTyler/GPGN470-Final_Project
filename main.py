@@ -1,7 +1,13 @@
 # Tyler Singleton
 # Final Project for GPGN470
 
-# Necessary Libraries
+# Viewing
+import matplotlib.pyplot as plt
+
+# Machine Learning
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
 
 # GeoProcessing
 import h5py
@@ -149,6 +155,40 @@ with ChangeDirectory(r'Data_Files\Shape_Files'):
 
 # ------------------------------------------------
 # Machine learning
+gdf = geopandas.read_file(r'Data_Files\Shape_Files\Master\Master.shp')
 
+dataframe = pd.DataFrame(gdf.drop(columns='geometry')).dropna()
+dataset = np.array([dataframe[col].values for col in dataframe.columns])
 
-print('Done!')
+X = dataset[:-1].T
+y = dataset[-1:].T
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33)
+
+# Decision Tree Regression
+# Fit regression model
+regression = DecisionTreeRegressor(max_depth=5)
+regression.fit(X_train, y_train)
+
+# Predict
+y_pred = regression.predict(X_test)
+
+# Error
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+r2 = r2_score(y_test, y_pred)
+
+print(f'Error: rmse {rmse}, r2 {r2}')
+
+# ------------------------------------------------
+## Plotting the results
+with ChangeDirectory(r'Data_Files\Shape_Files'):
+    gdf_smap = geopandas.read_file(r'SMAP\SMAP.shp')
+    gdf_pred = geopandas.read_file(r'Master\Master.shp').dropna()
+
+gdf_pred['Pred'] = regression.predict(X)
+
+gdf_smap.plot('Soil_Moist', markersize=20)
+plt.show()
+
+gdf_pred.plot('Pred', markersize=20)
+plt.show()
