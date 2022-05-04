@@ -24,71 +24,7 @@ import glob
 
 # Custom Files
 from definitions import ROOT_DIR
-from server_request import ServerRequest
-
-
-# NOTE I might want to reconsider how these classes are designed to function to make them more modular
-class DataFileExtraction:
-    """ Creates the file tree for downloading and storing data
-
-    Methods:
-        __init__(self)
-        dir_constructor(self)
-        data_constructor(self)
-        save_data(self)
-    """
-    def __init__(self):
-        self.project_root = ROOT_DIR
-        self.data_dir = os.path.join(self.project_root, 'Data_Files')
-        self.urls_dir = os.path.join(self.project_root, 'URLs')
-
-        # Constructors
-        self.dir_constructor()
-
-    # TODO Add a function to check if the files already exist without removing and
-    #   only download new files
-    # NOTE may be best to remove this method to have the data_constructor create the file directories
-    def dir_constructor(self):
-        """Create a file directory for the data to be downloaded and stored"""
-        try:
-            # Create a new directory if no directory exists
-            os.mkdir(self.data_dir)
-            for file in ['CYGNSS', 'EASE-2_Grid', 'SMAP']:
-                os.mkdir(os.path.join(self.data_dir, file))
-
-            # Load data into files
-            self.data_constructor()
-
-        # If a directory exists, ask user if they wish to continue
-        # This will remove the upper level data folder
-        except FileExistsError:
-            print('Directory already exists, \nContinuing will remove the current contents')
-            user_input = input('Continue: Y/N \n>>> ')
-            if user_input == 'Y' or user_input == 'y':
-                # TODO I should be able to download files without have to remove or overwrite additional files
-                shutil.rmtree(self.data_dir, ignore_errors=True)
-                self.dir_constructor()
-
-        # Something must be wrong with the root directory
-        except FileNotFoundError:
-            print(f'Cannot create path: {self.data_dir}')
-            sys.exit(1)
-
-    def data_constructor(self):
-        """Extracts the proper data files from EarthData Search"""
-        # Iterate through the text files
-        for url_file in os.listdir(self.urls_dir):
-            # Open text file and make a list of urls
-            with open(os.path.join(self.urls_dir, url_file)) as file:
-                urls = [url.strip('\n') for url in list(file)]
-
-            # Getting the directory name from the file name
-            # ...\URLs\SMAP.txt -> ...\Data_Files\SMAP
-            basename = os.path.splitext(os.path.basename(url_file))[0]
-            file_dir = os.path.join(self.data_dir, basename)
-
-            print('\nDownloading files')
-            ServerRequest(file_dir, urls, basename)
+from server_request import DatasetDownloadRequest, ChangeDirectory
 
 
 def save_data(path, file_type, mask):
@@ -150,10 +86,34 @@ def save_data(path, file_type, mask):
     gdf.to_file(os.path.join(base_dir, file_type + '.shp'))
 
 
+## ------------------------------------------------
 # Create directory tree and download necessary files
-# DataFileExtraction()
+request = DatasetDownloadRequest()
 
-# ------------------------------------------------
+# Getting Urls
+files = os.listdir('URLs')  # CYGNSS, EASE-2_Grid, Shape_Files, SMAP
+print(files)
+
+urls = [[url.strip('\n') for url in list(open(os.path.join('URLs', file)))] for file in files]
+
+# Downloading the files
+with ChangeDirectory('Data_Files'):
+    request.server_request(urls[0], 'CYGNSS', host='urs.earthdata.nasa.gov', stream=True)
+    request.server_request(urls[1], 'EASE-2_Grid')
+    request.server_request(urls[2], 'Shape_Files')
+    request.server_request(urls[3], 'SMAP', host='urs.earthdata.nasa.gov', stream=True)
+
+# Unpacking zip file
+with ChangeDirectory(r'Data_Files\Shape_Files'):
+    shutil.unpack_archive('world-administrative-boundaries.zip')
+    os.remove('world-administrative-boundaries.zip')
+
+# Unpacking compressed tar file
+with ChangeDirectory(r'Data_Files\EASE-2_Grid'):
+    os.system(f'tar -xvf gridloc.EASE2_M36km.tgz')
+    os.system(f'del gridloc.EASE2_M36km.tgz')
+
+## ------------------------------------------------
 # Processing data
 # Reading the geometry shapefile for masking
 shape_file = r'Data_Files\Shape_Files\world-administrative-boundaries.shp'
@@ -162,5 +122,7 @@ world_boundaries = geopandas.read_file(shape_file)
 mexico_mask = world_boundaries['geometry'].loc[world_boundaries['name'] == 'Mexico']
 
 # Processing Files
-# save_data(r'Data_Files\SMAP\*.h5', 'SMAP', mexico_mask)
-# save_data(r'Data_Files\CYGNSS\*.nc', 'CYGNSS', mexico_mask)
+save_data(r'Data_Files\SMAP\*.h5', 'SMAP', mexico_mask)
+save_data(r'Data_Files\CYGNSS\*.nc', 'CYGNSS', mexico_mask)
+
+## ------------------------------------------------
