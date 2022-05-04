@@ -1,6 +1,6 @@
 # Tyler Singleton
 # Final Project for GPGN470
-
+##
 # Viewing
 import matplotlib.pyplot as plt
 
@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.neural_network import MLPRegressor
+from sklearn import svm
 
 # GeoProcessing
 import h5py
@@ -25,7 +28,7 @@ import glob
 
 # Custom Files
 from server_request import DatasetDownloadRequest, ChangeDirectory
-
+##
 
 def save_data(path, file_type, mask):
     """Save the files to disk"""
@@ -34,7 +37,6 @@ def save_data(path, file_type, mask):
         # Extracting dataset
         datasets = [h5py.File(dataset) for dataset in glob.glob(path)]
 
-        # TODO: Figure out how to pass this in as an argument
         # Convert datasets into pandas dataframe object
         df = [pd.DataFrame({
             'Landcover_Class_0': dataset['Soil_Moisture_Retrieval_Data_AM']['landcover_class'][:, :, 0].ravel(),
@@ -154,7 +156,7 @@ with ChangeDirectory(r'Data_Files\Shape_Files'):
     gdf.to_file(r'Master\Master.shp')
 
 # ------------------------------------------------
-# Machine learning
+## Machine learning
 gdf = geopandas.read_file(r'Data_Files\Shape_Files\Master\Master.shp')
 
 dataframe = pd.DataFrame(gdf.drop(columns='geometry')).dropna()
@@ -171,13 +173,40 @@ regression = DecisionTreeRegressor(max_depth=5)
 regression.fit(X_train, y_train)
 
 # Predict
-y_pred = regression.predict(X_test)
+y_pred_tree = regression.predict(X_test)
+
+# Neural Networks
+scaler = StandardScaler()
+scaler.fit(X_train)
+
+X_train = scaler.transform(X_train)
+X_test = scaler.transform(X_test)
+
+regression_neural = MLPRegressor(max_iter=2000)
+regression_neural.fit(X_train, y_train)
+
+y_pred_neural = regression_neural.predict(X_test)
+
+# Support Vector Machine
+regression_svm = svm.SVR()
+regression_svm.fit(X_train, y_train)
+
+y_pred_svm = regression_svm.predict(X_test)
 
 # Error
-rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-r2 = r2_score(y_test, y_pred)
+rmse_tree = np.sqrt(mean_squared_error(y_test, y_pred_tree))
+r2_tree = r2_score(y_test, y_pred_tree)
 
-print(f'Error: rmse {rmse}, r2 {r2}')
+rmse_neural = np.sqrt(mean_squared_error(y_test, y_pred_neural))
+r2_neural = r2_score(y_test, y_pred_neural)
+
+rmse_svm = np.sqrt(mean_squared_error(y_test, y_pred_svm))
+r2_svm = r2_score(y_test, y_pred_svm)
+
+
+print(f'Error: rmse {rmse_tree}, r2 {r2_tree}')
+print(f'Error: rmse {rmse_neural}, r2 {r2_neural}')
+print(f'Error: rmse {rmse_svm}, r2 {r2_svm}')
 
 # ------------------------------------------------
 ## Plotting the results
@@ -185,10 +214,18 @@ with ChangeDirectory(r'Data_Files\Shape_Files'):
     gdf_smap = geopandas.read_file(r'SMAP\SMAP.shp')
     gdf_pred = geopandas.read_file(r'Master\Master.shp').dropna()
 
-gdf_pred['Pred'] = regression.predict(X)
+gdf_pred['Decision_Tree'] = regression.predict(X)
+gdf_pred['Neural_Network'] = regression_neural.predict(scaler.transform(X))
+gdf_pred['Support_Vector'] = regression_svm.predict(scaler.transform(X))
 
 gdf_smap.plot('Soil_Moist', markersize=20)
 plt.show()
 
-gdf_pred.plot('Pred', markersize=20)
+gdf_pred.plot('Decision_Tree', markersize=20)
+plt.show()
+
+gdf_pred.plot('Neural_Network', markersize=20)
+plt.show()
+
+gdf_pred.plot('Support_Vector', markersize=20)
 plt.show()
