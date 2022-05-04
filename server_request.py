@@ -1,17 +1,23 @@
+# Necessary Imports
+import re
 import os
-import requests
 import shutil
+import requests
 import urllib.request as request
 
+from requests.exceptions import HTTPError, InvalidSchema
 from contextlib import closing
-from tqdm import *
-from definitions import AUTH, FTP_FILES
+
+# Progress bar
+from tqdm import tqdm
+
+# Custom files
+from definitions import AUTH, ROOT_DIR
 
 
-# Class override taken from EarthData
-# Overriding requests.Session.rebuild_auth to maintain headers when redirected
 class SessionWithHeaderRedirection(requests.Session):
-    AUTH_HOST = 'urs.earthdata.nasa.gov'
+    """Session override was provided by EarthData"""
+    AUTH_HOST = None
 
     def __init__(self, username, password):
         super().__init__()
@@ -32,97 +38,114 @@ class SessionWithHeaderRedirection(requests.Session):
         return
 
 
-class ServerRequest:
-    """Requesting files from the server for download
+class ChangeDirectory:
+    """Context manager for changing the current working directory"""
+    def __init__(self, newPath):
+        self.newPath = os.path.expanduser(newPath)
+
+    def __enter__(self):
+        self.savedPath = os.getcwd()
+        os.chdir(self.newPath)
+
+    def __exit__(self, etype, value, traceback):
+        os.chdir(self.savedPath)
+
+
+class BaseAuthenticator:
+    """Parent class for server authentication
 
     Methods:
-        __init__(self, dir_path, urls, basename)
-        request(self)
+        __init__(self)
     """
-    def __init__(self, file_dir, urls, basename):
-        self.auth = AUTH.values()
-        self.urls = urls
-        self.dir_path = file_dir
-        self.basename = basename
+    def __init__(self):
+        self.username = AUTH['USERNAME']
+        self.password = AUTH['PASSWORD']
 
-        # Methods
-        self.request()
 
-    def request(self):
-        """Send requests to servers"""
-        print(self.basename)
-        if self.basename == 'EASE-2_Grid':
-            self.ftp_request()
-        elif self.basename == 'CYGNSS' or self.basename == 'SMAP':
-            self.earth_data_request()
-        elif self.basename == 'Shape_Files':
-            self.shape_file_request()
+class DatasetDownloadRequest(BaseAuthenticator):
+    """
+    Gets a response from the server. If status code is 200, retrieve and download the contents.
+    Else, return an exception.
+
+    Methods:
+        __init__(self)
+        server_request(self, urls, path, host, **kwargs)
+        server_download(response)
+        ftp_server_download(response)
+        scan_directory(path)
+    """
+    def __init__(self):
+        super().__init__()
+        self.root = ROOT_DIR
+
+    def server_request(self, urls, path, host=None, **kwargs):
+        """Sends request using the request package"""
+        # Create session
+        if host:
+            session = SessionWithHeaderRedirection(self.username, self.password)
+            session.AUTH_HOST = host
         else:
-            print('Request does not exist... Yet!')
+            session = requests.Session()
 
-    def shape_file_request(self):
-        """Default request"""
-        zip_file = self.basename + '.zip'
+        # Scan the directory for files
+        self.scan_directory(path)
 
-        for url in self.urls:
-            response = requests.get(url)
+        # Iterate through urls
+        with ChangeDirectory(path):
+            for url in urls:
+                try:
+                    # Raise HTTPError exception if auth fails
+                    response = session.get(url, **kwargs)
+                    response.raise_for_status()
 
-            # TODO Look into using tempfile package
-            # Create a temporary zip file within the project root
-            # Decompress into its respective directory
-            with open(zip_file, 'wb') as file:
-                file.write(response.content)
+                    # Download data
+                    self.server_download(response)
+                    session.close()
 
-            shutil.unpack_archive(zip_file, self.basename)
-            shutil.move(self.basename, self.dir_path)
+                except HTTPError:
+                    print('Authentication failed.')
 
-            # Delete the temporary file
-            os.remove(zip_file)
+                # Since requests does not support FTP links
+                # NOTE The file path is hardcoded for now.
+                #   Need to reconfigure to allow a set of file paths.
+                except InvalidSchema:
+                    ftp_path = os.path.join(url, 'gridloc.EASE2_M36km.tgz')
+                    if not os.path.isfile(ftp_path):
+                        with closing(request.urlopen(ftp_path)) as response:
+                            self.ftp_server_download(response)
 
-    # TODO Make this more general to accommodate other requests
-    def ftp_request(self):
-        """Send requests to FTP and download file"""
-        cwd = os.getcwd()  # Get current directory for processing
-        for url, ftp_file in list(zip(self.urls, FTP_FILES)):
-
-            with closing(request.urlopen(os.path.join(url, ftp_file))) as response:
-                with open(os.path.join(self.dir_path, ftp_file), 'wb') as file:
-                    shutil.copyfileobj(response, file)
-
-            # TODO Use absolute file path instead of relative
-            # Change system path for shell command
-            os.chdir(self.dir_path)
-
-            # Unpack compressed tar file and delete file
-            os.system(f'tar -xvf {ftp_file}')
-            os.system(f'del {ftp_file}')
-
-            # Change system path back to
-            os.chdir(cwd)
-
-    def earth_data_request(self):
-        """Send requests to EarthData servers and download files"""
-        session = SessionWithHeaderRedirection(*self.auth)
-        for url in self.urls:
-            # Extract the filename from the url to be used when saving the file
-            filename = url[url.rfind('/') + 1:]
-            filepath = os.path.join(self.dir_path, filename)
-
+    @staticmethod
+    def scan_directory(path):
+        """Checks if a directory exists, and returns a list of files not found in the directory"""
+        if not os.path.isdir(path):
             try:
-                # Submit the request using the session
-                # And raise exception HTTPError if one occurred
-                response = session.get(url, stream=True)
-                response.raise_for_status()
+                os.makedirs(path)
+            except Exception as e:
+                print(e)
 
-                # Initializes progress bar
-                progress_bar = tqdm(total=int(response.headers['Content-Length']))
+    @staticmethod
+    def server_download(response):
+        """Download file from server"""
 
-                # Save the data to designated file path
-                with open(filepath, 'wb') as fd:
-                    for chunk in response.iter_content(chunk_size=1024 * 1024):
-                        fd.write(chunk)
-                        progress_bar.update(len(chunk))
+        # Check if the headers contain a filename
+        # Else use the file url as the filename
+        if 'content-disposition' in response.headers:
+            regex = re.compile(r'(?<=filename=")[\w.-]+')
+            filename = regex.search(response.headers['content-disposition'])[0]
+        else:
+            filename = url[url.rfind('/') + 1:]
 
-            except requests.exceptions.HTTPError as err:
-                # Handle error if any were raised
-                print(err)
+        # Extract contents from response object and save onto disk
+        if not os.path.isfile(filename):
+            # Initialize progress bar
+            progress_bar = tqdm(total=int(response.headers['Content-Length']))
+
+            with open(filename, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=1024):
+                    file.write(chunk)
+                    progress_bar.update(len(chunk))
+
+    @staticmethod
+    def ftp_server_download(response):
+        with open('gridloc.EASE2_M36km.tgz', 'wb') as file:
+            shutil.copyfileobj(response, file)
