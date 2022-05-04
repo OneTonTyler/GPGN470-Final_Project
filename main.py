@@ -134,13 +134,12 @@ save_data(r'Data_Files\EASE-2_Grid\*', 'EASE2', mexico_mask)
 # Join our shape files into a single geopanda dataframe object
 print('Merging shape files...')
 with ChangeDirectory(r'Data_Files\Shape_Files'):
-    cygnss_gdf = geopandas.read_file(r'CYGNSS\CYGNSS.shp')
-    smap_gdf = geopandas.read_file(r'SMAP\SMAP.shp')
-    ease2_gdf = geopandas.read_file(r'EASE2\EASE2.shp')
+    cygnss_gdf = geopandas.read_file(r'CYGNSS\CYGNSS.shp').drop(columns=['Latitude', 'Longitude'])
+    smap_gdf = geopandas.read_file(r'SMAP\SMAP.shp').drop(columns=['Latitude', 'Longitude'])
+    ease2_gdf = geopandas.read_file(r'EASE2\EASE2.shp').drop(columns=['Latitude', 'Longitude'])
 
-    gdf = geopandas.sjoin_nearest(ease2_gdf, cygnss_gdf)
-    gdf = geopandas.sjoin_nearest(ease2_gdf, smap_gdf)
-    gdf = gdf.drop(columns=['Latitude_left', 'Longitude_left', 'Latitude_right', 'Longitude_right', 'index_right'])
+    gdf = geopandas.sjoin_nearest(ease2_gdf, cygnss_gdf).drop(columns='index_right')
+    gdf = geopandas.sjoin_nearest(gdf, smap_gdf).drop(columns='index_right')
     gdf = gdf.reset_index()
 
     if not os.path.isdir('Master'):
@@ -150,5 +149,6 @@ with ChangeDirectory(r'Data_Files\Shape_Files'):
 
 # ------------------------------------------------
 # Machine learning
+
 
 print('Done!')
