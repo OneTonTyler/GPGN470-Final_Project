@@ -80,6 +80,8 @@ class DatasetDownloadRequest(BaseAuthenticator):
 
     def server_request(self, urls, path, host=None, **kwargs):
         """Sends request using the request package"""
+        print('Connecting to server...')
+
         # Create session
         if host:
             session = SessionWithHeaderRedirection(self.username, self.password)
@@ -99,7 +101,7 @@ class DatasetDownloadRequest(BaseAuthenticator):
                     response.raise_for_status()
 
                     # Download data
-                    self.server_download(response)
+                    self.server_download(response, url)
                     session.close()
 
                 except HTTPError:
@@ -114,6 +116,8 @@ class DatasetDownloadRequest(BaseAuthenticator):
                         with closing(request.urlopen(ftp_path)) as response:
                             self.ftp_server_download(response)
 
+        print('Done!')
+
     @staticmethod
     def scan_directory(path):
         """Checks if a directory exists, and returns a list of files not found in the directory"""
@@ -124,15 +128,16 @@ class DatasetDownloadRequest(BaseAuthenticator):
                 print(e)
 
     @staticmethod
-    def server_download(response):
+    def server_download(response, url=None):
         """Download file from server"""
 
         # Check if the headers contain a filename
         # Else use the file url as the filename
-        if 'content-disposition' in response.headers:
-            regex = re.compile(r'(?<=filename=")[\w.-]+')
+        regex = re.compile(r'(?<=filename=")[\w.-]+')
+
+        try:
             filename = regex.search(response.headers['content-disposition'])[0]
-        else:
+        except (TypeError, KeyError):
             filename = url[url.rfind('/') + 1:]
 
         # Extract contents from response object and save onto disk
